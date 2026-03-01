@@ -20,38 +20,23 @@ const io = new Server(server);
 
 app.use(express.static("public"));
 
-// In-memory conversation store
 const sessions = {};
 
-// Metrics endpoint
 app.get("/metrics", async (req, res) => {
   res.set("Content-Type", register.contentType);
   res.end(await register.metrics());
 });
 
 io.on("connection", (socket) => {
-
   activeSocketConnections.inc();
-
-  logger.info({
-    event: "socket_connected",
-    socketId: socket.id
-  });
+  logger.info("socket_connected", { socketId: socket.id });
 
   socket.on("user_message", async (message) => {
-
     const startTime = Date.now();
     llmRequestCounter.inc();
-
-    logger.info({
-      event: "request_received",
-      socketId: socket.id,
-      promptLength: message.length
-    });
+    logger.info("request_received", { socketId: socket.id, promptLength: message.length });
 
     try {
-
-      // Initialize session if not exists
       if (!sessions[socket.id]) {
         sessions[socket.id] = [
           {
@@ -62,19 +47,12 @@ io.on("connection", (socket) => {
       }
 
       const conversation = sessions[socket.id];
+      conversation.push({ role: "user", content: message });
 
-      // Add user message
-      conversation.push({
-        role: "user",
-        content: message
-      });
-
-      // 🔥 Limit conversation history (cost protection)
       const MAX_HISTORY = 10;
-
       if (conversation.length > MAX_HISTORY + 1) {
         sessions[socket.id] = [
-          conversation[0], // keep system
+          conversation[0],
           ...conversation.slice(-MAX_HISTORY)
         ];
       }
@@ -83,71 +61,39 @@ io.on("connection", (socket) => {
       let firstTokenRecorded = false;
 
       await generateStream(sessions[socket.id], (chunk) => {
-
         if (!firstTokenRecorded) {
           const firstLatency = Date.now() - startTime;
           llmFirstTokenLatency.observe(firstLatency);
           firstTokenRecorded = true;
-
-          logger.info({
-            event: "first_token",
-            socketId: socket.id,
-            latencyMs: firstLatency
-          });
+          logger.info("first_token", { socketId: socket.id, latencyMs: firstLatency });
         }
-
         fullText += chunk;
         socket.emit("ai_stream", chunk);
       });
 
       const totalLatency = Date.now() - startTime;
       llmTotalLatency.observe(totalLatency);
+      logger.info("response_complete", { socketId: socket.id, totalLatencyMs: totalLatency });
 
-      logger.info({
-        event: "response_complete",
-        socketId: socket.id,
-        totalLatencyMs: totalLatency
-      });
-
-      // Add assistant response to memory
-      sessions[socket.id].push({
-        role: "assistant",
-        content: fullText
-      });
-
+      sessions[socket.id].push({ role: "assistant", content: fullText });
       socket.emit("ai_stream_end");
 
     } catch (error) {
-
       llmErrorCounter.inc();
-
-      logger.error({
-        event: "llm_error",
-        socketId: socket.id,
-        message: error.message
-      });
-
+      logger.error("llm_error", { socketId: socket.id, message: error.message });
       socket.emit("ai_stream_end");
     }
   });
 
   socket.on("disconnect", () => {
     activeSocketConnections.dec();
-    delete sessions[socket.id]; // clean memory
-
-    logger.info({
-      event: "socket_disconnected",
-      socketId: socket.id
-    });
+    delete sessions[socket.id];
+    logger.info("socket_disconnected", { socketId: socket.id });
   });
-
 });
 
 const PORT = process.env.PORT || 4000;
 
 server.listen(PORT, "0.0.0.0", () => {
-  logger.info({
-    event: "server_started",
-    port: PORT
-  });
+  logger.info("server_started", { port: PORT });
 });
