@@ -34,7 +34,7 @@ const transports = [
 
 // Only add Loki transport if LOKI_URL is set
 if (process.env.LOKI_URL) {
-  const lokiOptions = {
+  transports.push(new LokiTransport({
     host: process.env.LOKI_URL,
     labels: {
       app: "chatbot",
@@ -42,20 +42,14 @@ if (process.env.LOKI_URL) {
       service: "chatbot-genai"
     },
     json: true,
-    batching: true,
-    interval: 5,                // batch every 5 seconds
+    batching: false,          // ← change to false
     replaceTimestamp: true,
-    format: lokiFormat,
+    useWinstonMetaAsLabels: false,
+    format: winston.format.json(),
     onConnectionError: (err) =>
       console.error("[Loki] Connection error:", err.message)
-  };
-
-  // Add basicAuth only if credentials are provided
-  if (process.env.LOKI_USERNAME && process.env.LOKI_PASSWORD) {
-    lokiOptions.basicAuth = `${process.env.LOKI_USERNAME}:${process.env.LOKI_PASSWORD}`;
-  }
-
-  transports.push(new LokiTransport(lokiOptions));
+  }));
+  console.log("✅ Loki transport added");
 } else {
   console.warn("[Logger] LOKI_URL not set — skipping Loki transport");
 }
