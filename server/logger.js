@@ -1,3 +1,4 @@
+console.log("🔍 LOKI_URL:", process.env.LOKI_URL);
 const winston = require("winston");
 const LokiTransport = require("winston-loki");
 
