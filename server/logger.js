@@ -19,12 +19,6 @@ const consoleFormat = winston.format.combine(
   })
 );
 
-// ─── Loki Format (structured JSON for querying) ───────────────────────────────
-const lokiFormat = winston.format.combine(
-  winston.format.timestamp(),
-  winston.format.json()
-);
-
 // ─── Transports ───────────────────────────────────────────────────────────────
 const transports = [
   new winston.transports.Console({
@@ -32,7 +26,7 @@ const transports = [
   })
 ];
 
-// Only add Loki transport if LOKI_URL is set
+// ─── Loki Transport ───────────────────────────────────────────────────────────
 if (process.env.LOKI_URL) {
   transports.push(new LokiTransport({
     host: process.env.LOKI_URL,
@@ -41,10 +35,21 @@ if (process.env.LOKI_URL) {
       env: process.env.NODE_ENV || "development",
       service: "chatbot-genai"
     },
-    json: true,
-    batching: false,          // ← change to false
+    json: false,
+    batching: false,
     replaceTimestamp: true,
     useWinstonMetaAsLabels: false,
+    format: winston.format.combine(
+      winston.format.timestamp(),
+      winston.format.printf(({ level, message, ...meta }) => {
+        // strip internal winston fields
+        delete meta.timestamp;
+        delete meta[Symbol.for('level')];
+        delete meta[Symbol.for('splat')];
+        const metaStr = Object.keys(meta).length ? ` | ${JSON.stringify(meta)}` : "";
+        return `${level}: ${message}${metaStr}`;
+      })
+    ),
     onConnectionError: (err) =>
       console.error("[Loki] Connection error:", err.message)
   }));
@@ -58,23 +63,20 @@ const logger = winston.createLogger({
   levels: logLevels.levels,
   level: process.env.LOG_LEVEL || "info",
   transports,
-  // Don't crash on unhandled logger errors
   exitOnError: false
 });
 
-// ─── Helper Methods (structured logging) ─────────────────────────────────────
+// ─── Helper Methods ───────────────────────────────────────────────────────────
 
-// Log incoming user messages
 logger.logUserMessage = (userId, message, sessionId) => {
   logger.info("User message received", {
     userId,
     sessionId,
-    message: message?.substring(0, 200), // truncate long messages
+    message: message?.substring(0, 200),
     type: "user_message"
   });
 };
 
-// Log bot responses
 logger.logBotResponse = (userId, response, sessionId, durationMs) => {
   logger.info("Bot response sent", {
     userId,
@@ -85,7 +87,6 @@ logger.logBotResponse = (userId, response, sessionId, durationMs) => {
   });
 };
 
-// Log Redis operations
 logger.logRedis = (operation, key, success, durationMs) => {
   logger.debug("Redis operation", {
     operation,
@@ -96,7 +97,6 @@ logger.logRedis = (operation, key, success, durationMs) => {
   });
 };
 
-// Log API errors
 logger.logError = (errorMessage, stack, context = {}) => {
   logger.error(errorMessage, {
     stack,
@@ -105,7 +105,6 @@ logger.logError = (errorMessage, stack, context = {}) => {
   });
 };
 
-// Log HTTP requests
 logger.logHttp = (method, url, statusCode, durationMs, ip) => {
   logger.http("HTTP request", {
     method,
