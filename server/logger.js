@@ -45,7 +45,6 @@ if (process.env.LOKI_URL) {
     batching: false,          // ← change to false
     replaceTimestamp: true,
     useWinstonMetaAsLabels: false,
-    format: winston.format.json(),
     onConnectionError: (err) =>
       console.error("[Loki] Connection error:", err.message)
   }));
